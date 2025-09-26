@@ -1,0 +1,31 @@
+{
+  "name": "messaging-api",
+  "version": "1.0.0",
+  "description": "REST API for messaging using Firebase + Express - deployed on Render",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "messaging",
+    "api",
+    "firebase",
+    "express",
+    "rest",
+    "chat",
+    "real-time"
+  ],
+  "author": "Your Name",
+  "license": "ISC",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "firebase-admin": "^13.5.0"
+  }
+}
