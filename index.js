@@ -198,37 +198,7 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Get participants in project
-app.get("/projects/:projectId/participants", async (req, res) => {
-  try {
-    const { projectId } = req.params;
-    
-    if (!projectId || projectId.trim() === "") {
-      return res.status(400).json({ error: "Project ID is required" });
-    }
-    
-    console.log(`Loading participants for project: ${projectId}`);
-    const projectDoc = await db.collection("projects").doc(projectId).get();
-
-    if (!projectDoc.exists) {
-      console.log(`Project not found: ${projectId}`);
-      return res.status(404).json({ 
-        error: "Project not found. Make sure the project exists in Firestore." 
-      });
-    }
-
-    const projectData = projectDoc.data();
-    const participants = projectData.participants || [];
-    
-    console.log(`Found ${participants.length} participants`);
-    res.json({ participants });
-  } catch (err) {
-    console.error("Error loading participants:", err);
-    res.status(500).json({ error: `Server error: ${err.message}` });
-  }
-});
-
-// Get messages in project
+// Get messages in project - FIXED to return empty array for non-existent projects
 app.get("/projects/:projectId/messages", async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -242,26 +212,41 @@ app.get("/projects/:projectId/messages", async (req, res) => {
     // First check if project exists
     const projectDoc = await db.collection("projects").doc(projectId).get();
     if (!projectDoc.exists) {
-      console.log(`Project not found: ${projectId}`);
-      return res.status(404).json({ 
-        error: "Project not found. Make sure the project exists in Firestore." 
-      });
+      console.log(`Project not found: ${projectId} - returning empty array`);
+      // Return empty array instead of 404 for non-existent projects
+      return res.json([]);
     }
     
     const snapshot = await db.collection("projects").doc(projectId)
       .collection("messages").orderBy("timestamp", "asc").get();
 
-    const messages = snapshot.docs.map(doc => ({ 
-      id: doc.id, 
-      ...doc.data() 
-    }));
+    const messages = snapshot.docs.map(doc => {
+      const d = doc.data();
+      let normalizedTimestamp = null;
+      if (d.timestamp) {
+        if (d.timestamp._seconds !== undefined && d.timestamp._nanoseconds !== undefined) {
+          normalizedTimestamp = d.timestamp;
+        } else if (typeof d.timestamp.seconds === "number" && typeof d.timestamp.nanoseconds === "number") {
+          normalizedTimestamp = { _seconds: d.timestamp.seconds, _nanoseconds: d.timestamp.nanoseconds };
+        } else if (d.timestamp instanceof Date) {
+          normalizedTimestamp = {
+            _seconds: Math.floor(d.timestamp.getTime() / 1000),
+            _nanoseconds: (d.timestamp.getTime() % 1000) * 1000000
+          };
+        }
+      }
+      return {
+        id: doc.id,
+        senderId: d.senderId,
+        content: d.content,
+        timestamp: normalizedTimestamp
+      };
+    });
     
     console.log(`Found ${messages.length} messages`);
     res.json(messages);
   } catch (err) {
     console.error("Error loading messages:", err);
-    
-    // Handle specific Firestore errors
     if (err.code === 9) {
       res.status(500).json({ 
         error: "Database index required. Check Firestore console for index creation link." 
@@ -272,7 +257,36 @@ app.get("/projects/:projectId/messages", async (req, res) => {
   }
 });
 
-// Add a new message
+// Get participants in project - FIXED to return empty array for non-existent projects  
+app.get("/projects/:projectId/participants", async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    
+    if (!projectId || projectId.trim() === "") {
+      return res.status(400).json({ error: "Project ID is required" });
+    }
+    
+    console.log(`Loading participants for project: ${projectId}`);
+    const projectDoc = await db.collection("projects").doc(projectId).get();
+
+    if (!projectDoc.exists) {
+      console.log(`Project not found: ${projectId} - returning empty participants`);
+      // Return empty participants instead of 404 for non-existent projects
+      return res.json({ participants: [] });
+    }
+
+    const projectData = projectDoc.data();
+    const participants = projectData.participants || [];
+    
+    console.log(`Found ${participants.length} participants`);
+    res.json({ participants });
+  } catch (err) {
+    console.error("Error loading participants:", err);
+    res.status(500).json({ error: `Server error: ${err.message}` });
+  }
+});
+
+// Add a new message - FIXED to return consistent timestamp format
 app.post("/projects/:projectId/messages", async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -314,17 +328,45 @@ app.post("/projects/:projectId/messages", async (req, res) => {
       }
     }
 
-    const newMsg = { 
+    const newMsgForSave = { 
       senderId: senderId.trim(), 
       content: content.trim(), 
       timestamp: new Date() 
     };
     
     const docRef = await db.collection("projects").doc(projectId)
-      .collection("messages").add(newMsg);
+      .collection("messages").add(newMsgForSave);
 
     console.log(`Message added with ID: ${docRef.id}`);
-    res.json({ id: docRef.id, ...newMsg });
+
+    // Read it back to get the consistent timestamp format
+    const savedSnap = await docRef.get();
+    const savedData = savedSnap.data() || {};
+
+    // Normalize the timestamp to match GET format
+    let normalizedTimestamp = null;
+    const ts = savedData.timestamp;
+    if (ts) {
+      if (ts._seconds !== undefined && ts._nanoseconds !== undefined) {
+        normalizedTimestamp = ts;
+      } else if (typeof ts.seconds === "number" && typeof ts.nanoseconds === "number") {
+        normalizedTimestamp = { _seconds: ts.seconds, _nanoseconds: ts.nanoseconds };
+      } else if (ts instanceof Date) {
+        normalizedTimestamp = {
+          _seconds: Math.floor(ts.getTime() / 1000),
+          _nanoseconds: (ts.getTime() % 1000) * 1000000
+        };
+      }
+    }
+
+    const responseObj = {
+      id: docRef.id,
+      senderId: savedData.senderId,
+      content: savedData.content,
+      timestamp: normalizedTimestamp
+    };
+
+    res.json(responseObj);
   } catch (err) {
     console.error("Error adding message:", err);
     res.status(500).json({ error: `Server error: ${err.message}` });
@@ -429,6 +471,8 @@ app.delete("/projects/:projectId/messages/:messageId", async (req, res) => {
     res.status(500).json({ error: `Server error: ${err.message}` });
   }
 });
+
+// Create a test project
 app.post("/projects/:projectId/init", async (req, res) => {
   try {
     const { projectId } = req.params;
