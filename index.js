@@ -331,7 +331,104 @@ app.post("/projects/:projectId/messages", async (req, res) => {
   }
 });
 
-// Create a test project
+// Edit a message
+app.put("/projects/:projectId/messages/:messageId", async (req, res) => {
+  try {
+    const { projectId, messageId } = req.params;
+    const { senderId, content } = req.body;
+    
+    // Validation
+    if (!projectId || projectId.trim() === "") {
+      return res.status(400).json({ error: "Project ID is required" });
+    }
+    
+    if (!messageId || messageId.trim() === "") {
+      return res.status(400).json({ error: "Message ID is required" });
+    }
+    
+    if (!senderId || senderId.trim() === "") {
+      return res.status(400).json({ error: "Sender ID is required" });
+    }
+    
+    if (!content || content.trim() === "") {
+      return res.status(400).json({ error: "Message content is required" });
+    }
+    
+    console.log(`Editing message ${messageId} in project: ${projectId}`);
+    
+    const messageRef = db.collection("projects").doc(projectId).collection("messages").doc(messageId);
+    const messageDoc = await messageRef.get();
+    
+    if (!messageDoc.exists) {
+      return res.status(404).json({ error: "Message not found" });
+    }
+    
+    // Check if user owns the message
+    const messageData = messageDoc.data();
+    if (messageData.senderId !== senderId) {
+      return res.status(403).json({ error: "You can only edit your own messages" });
+    }
+    
+    const updatedMsg = {
+      content: content.trim(),
+      editedAt: new Date(),
+      edited: true
+    };
+    
+    await messageRef.update(updatedMsg);
+    
+    const updatedDoc = await messageRef.get();
+    console.log(`Message ${messageId} edited successfully`);
+    res.json({ id: updatedDoc.id, ...updatedDoc.data() });
+  } catch (err) {
+    console.error("Error editing message:", err);
+    res.status(500).json({ error: `Server error: ${err.message}` });
+  }
+});
+
+// Delete a message
+app.delete("/projects/:projectId/messages/:messageId", async (req, res) => {
+  try {
+    const { projectId, messageId } = req.params;
+    const { senderId } = req.query; // Pass senderId as query parameter
+    
+    // Validation
+    if (!projectId || projectId.trim() === "") {
+      return res.status(400).json({ error: "Project ID is required" });
+    }
+    
+    if (!messageId || messageId.trim() === "") {
+      return res.status(400).json({ error: "Message ID is required" });
+    }
+    
+    if (!senderId || senderId.trim() === "") {
+      return res.status(400).json({ error: "Sender ID is required" });
+    }
+    
+    console.log(`Deleting message ${messageId} in project: ${projectId}`);
+    
+    const messageRef = db.collection("projects").doc(projectId).collection("messages").doc(messageId);
+    const messageDoc = await messageRef.get();
+    
+    if (!messageDoc.exists) {
+      return res.status(404).json({ error: "Message not found" });
+    }
+    
+    // Check if user owns the message
+    const messageData = messageDoc.data();
+    if (messageData.senderId !== senderId) {
+      return res.status(403).json({ error: "You can only delete your own messages" });
+    }
+    
+    await messageRef.delete();
+    
+    console.log(`Message ${messageId} deleted successfully`);
+    res.json({ message: "Message deleted successfully", messageId });
+  } catch (err) {
+    console.error("Error deleting message:", err);
+    res.status(500).json({ error: `Server error: ${err.message}` });
+  }
+});
 app.post("/projects/:projectId/init", async (req, res) => {
   try {
     const { projectId } = req.params;
