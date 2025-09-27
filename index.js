@@ -5,26 +5,35 @@ import { getFirestore } from "firebase-admin/firestore";
 import fs from "fs";
 import path from "path";
 
-// Load Firebase service account
+// Load Firebase service account from environment variables
 let serviceAccount;
 try {
-  const serviceAccountPath = path.resolve("./serviceAccountKey.json");
-  serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, "utf8"));
-  console.log("Firebase service account loaded successfully");
+  // For production, use environment variable
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+    console.log("Firebase service account loaded from environment variable");
+  } else {
+    // For local development, use file
+    const serviceAccountPath = path.resolve("./serviceAccountKey.json");
+    serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, "utf8"));
+    console.log("Firebase service account loaded from file");
+  }
 } catch (error) {
   console.error("Error loading Firebase service account key:");
-  console.error("Make sure 'serviceAccountKey.json' exists in your project root");
-  console.error("Download it from Firebase Console → Project Settings → Service Accounts");
+  console.error("For production: Set FIREBASE_SERVICE_ACCOUNT_KEY environment variable");
+  console.error("For development: Make sure 'serviceAccountKey.json' exists");
   process.exit(1);
 }
 
 const app = express();
 
-// Add request logging
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.url}`);
-  next();
-});
+// Add request logging (only in development)
+if (process.env.NODE_ENV !== 'production') {
+  app.use((req, res, next) => {
+    console.log(`${req.method} ${req.url}`);
+    next();
+  });
+}
 
 // Middleware
 app.use(cors());
@@ -184,7 +193,8 @@ app.get("/health", (req, res) => {
   res.json({ 
     status: "OK", 
     timestamp: new Date().toISOString(),
-    firebase: "Connected"
+    firebase: "Connected",
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
@@ -352,6 +362,16 @@ app.post("/projects/:projectId/init", async (req, res) => {
   }
 });
 
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ 
+    error: 'Endpoint not found',
+    method: req.method,
+    url: req.url,
+    availableEndpoints: ['/health', '/projects/:projectId/messages', '/projects/:projectId/participants']
+  });
+});
+
 // Error handlers
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
@@ -364,12 +384,10 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Start server
 const PORT = process.env.PORT || 5001;
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log("Messaging API Server Started");
   console.log(`Server running on: http://localhost:${PORT}`);
-  console.log(`Frontend available at: http://localhost:${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log("Firebase service account configured!");
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
 // Handle server errors
