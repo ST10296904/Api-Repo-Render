@@ -1,4 +1,3 @@
-// index.js
 import express from "express";
 import cors from "cors";
 import { initializeApp, cert } from "firebase-admin/app";
@@ -23,7 +22,6 @@ try {
   console.error("Error loading Firebase service account key:");
   console.error("For production: Set FIREBASE_SERVICE_ACCOUNT_KEY environment variable");
   console.error("For development: Make sure 'serviceAccountKey.json' exists");
-  console.error(error);
   process.exit(1);
 }
 
@@ -253,33 +251,17 @@ app.get("/projects/:projectId/messages", async (req, res) => {
     const snapshot = await db.collection("projects").doc(projectId)
       .collection("messages").orderBy("timestamp", "asc").get();
 
-    const messages = snapshot.docs.map(doc => {
-      const d = doc.data();
-      let normalizedTimestamp = null;
-      if (d.timestamp) {
-        if (d.timestamp._seconds !== undefined && d.timestamp._nanoseconds !== undefined) {
-          normalizedTimestamp = d.timestamp;
-        } else if (typeof d.timestamp.seconds === "number" && typeof d.timestamp.nanoseconds === "number") {
-          normalizedTimestamp = { _seconds: d.timestamp.seconds, _nanoseconds: d.timestamp.nanoseconds };
-        } else if (d.timestamp instanceof Date) {
-          normalizedTimestamp = {
-            _seconds: Math.floor(d.timestamp.getTime() / 1000),
-            _nanoseconds: (d.timestamp.getTime() % 1000) * 1000000
-          };
-        }
-      }
-      return {
-        id: doc.id,
-        senderId: d.senderId,
-        content: d.content,
-        timestamp: normalizedTimestamp
-      };
-    });
+    const messages = snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data() 
+    }));
     
     console.log(`Found ${messages.length} messages`);
     res.json(messages);
   } catch (err) {
     console.error("Error loading messages:", err);
+    
+    // Handle specific Firestore errors
     if (err.code === 9) {
       res.status(500).json({ 
         error: "Database index required. Check Firestore console for index creation link." 
@@ -290,7 +272,7 @@ app.get("/projects/:projectId/messages", async (req, res) => {
   }
 });
 
-// Add a new message (fixed to return Firestore timestamp object)
+// Add a new message
 app.post("/projects/:projectId/messages", async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -332,45 +314,17 @@ app.post("/projects/:projectId/messages", async (req, res) => {
       }
     }
 
-    const newMsgForSave = { 
+    const newMsg = { 
       senderId: senderId.trim(), 
       content: content.trim(), 
       timestamp: new Date() 
     };
     
     const docRef = await db.collection("projects").doc(projectId)
-      .collection("messages").add(newMsgForSave);
+      .collection("messages").add(newMsg);
 
     console.log(`Message added with ID: ${docRef.id}`);
-
-    // Read it back to get Firestore-native timestamp object
-    const savedSnap = await docRef.get();
-    const savedData = savedSnap.data() || {};
-
-    // Normalize the timestamp so client receives {_seconds, _nanoseconds}
-    let normalizedTimestamp = null;
-    const ts = savedData.timestamp;
-    if (ts) {
-      if (ts._seconds !== undefined && ts._nanoseconds !== undefined) {
-        normalizedTimestamp = ts;
-      } else if (typeof ts.seconds === "number" && typeof ts.nanoseconds === "number") {
-        normalizedTimestamp = { _seconds: ts.seconds, _nanoseconds: ts.nanoseconds };
-      } else if (ts instanceof Date) {
-        normalizedTimestamp = {
-          _seconds: Math.floor(ts.getTime() / 1000),
-          _nanoseconds: (ts.getTime() % 1000) * 1000000
-        };
-      }
-    }
-
-    const responseObj = {
-      id: docRef.id,
-      senderId: savedData.senderId,
-      content: savedData.content,
-      timestamp: normalizedTimestamp
-    };
-
-    res.json(responseObj);
+    res.json({ id: docRef.id, ...newMsg });
   } catch (err) {
     console.error("Error adding message:", err);
     res.status(500).json({ error: `Server error: ${err.message}` });
