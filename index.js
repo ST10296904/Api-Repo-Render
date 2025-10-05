@@ -77,8 +77,12 @@ app.get("/", (req, res) => {
         <input type="text" id="projectId" value="test-123" />
       </div>
       <div>
-        <label>Your Name:</label><br>
+        <label>Your Sender ID (UID):</label><br>
         <input type="text" id="senderId" value="TestUser" />
+      </div>
+      <div>
+        <label>Your Display Name (senderName):</label><br>
+        <input type="text" id="senderName" value="Test User" />
       </div>
       <div>
         <label>Message:</label><br>
@@ -98,7 +102,7 @@ app.get("/", (req, res) => {
       <h3>Available API Endpoints</h3>
       <ul>
         <li><a href="/health" target="_blank">GET /health</a> - Health check</li>
-        <li>POST /projects/{projectId}/messages - Send a message</li>
+        <li>POST /projects/{projectId}/messages - Send a message (body: { senderId, senderName, content })</li>
         <li>GET /projects/{projectId}/messages - Get messages</li>
         <li>GET /projects/{projectId}/participants - Get participants</li>
         <li>POST /projects/{projectId}/init - Initialize test project</li>
@@ -120,13 +124,14 @@ app.get("/", (req, res) => {
         async function sendTestMessage() {
           const projectId = document.getElementById('projectId').value;
           const senderId = document.getElementById('senderId').value;
+          const senderName = document.getElementById('senderName').value;
           const content = document.getElementById('message').value;
           
           try {
             const response = await fetch(\`/projects/\${projectId}/messages\`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ senderId, content })
+              body: JSON.stringify({ senderId, senderName, content })
             });
             const data = await response.json();
             showResult({
@@ -198,7 +203,7 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Get messages in project - FIXED to return empty array for non-existent projects
+// Get messages in project - FIXED to return senderName when available and empty array for non-existent projects
 app.get("/projects/:projectId/messages", async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -238,6 +243,7 @@ app.get("/projects/:projectId/messages", async (req, res) => {
       return {
         id: doc.id,
         senderId: d.senderId,
+        senderName: d.senderName || "", // <-- include senderName when present
         content: d.content,
         timestamp: normalizedTimestamp
       };
@@ -286,11 +292,11 @@ app.get("/projects/:projectId/participants", async (req, res) => {
   }
 });
 
-// Add a new message - FIXED to return consistent timestamp format
+// Add a new message - FIXED to accept and store senderName and return it back with the saved message
 app.post("/projects/:projectId/messages", async (req, res) => {
   try {
     const { projectId } = req.params;
-    const { senderId, content } = req.body;
+    const { senderId, senderName, content } = req.body; // <-- accept senderName
     
     // Validation
     if (!projectId || projectId.trim() === "") {
@@ -330,6 +336,7 @@ app.post("/projects/:projectId/messages", async (req, res) => {
 
     const newMsgForSave = { 
       senderId: senderId.trim(), 
+      senderName: senderName && typeof senderName === "string" ? senderName.trim() : "Guest", // <-- store senderName
       content: content.trim(), 
       timestamp: new Date() 
     };
@@ -362,6 +369,7 @@ app.post("/projects/:projectId/messages", async (req, res) => {
     const responseObj = {
       id: docRef.id,
       senderId: savedData.senderId,
+      senderName: savedData.senderName || "", // <-- include senderName in response
       content: savedData.content,
       timestamp: normalizedTimestamp
     };
